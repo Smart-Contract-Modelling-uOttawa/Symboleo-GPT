@@ -1,0 +1,292 @@
+Symboleo is a formal language used to specify legal contracts.
+Here is Symboleo's syntax in Xtext format:
+
+grammar ca.uottawa.csmlab.symboleo.Symboleo with org.eclipse.xtext.common.Terminals
+
+generate symboleo "http://www.uottawa.ca/csmlab/symboleo/Symboleo"
+import "http://www.eclipse.org/emf/2002/Ecore" as ecore
+
+Model:
+	'Domain' domainName=ID
+	(domainTypes+=DomainType ';')+
+	'endDomain'
+	('TimeGranularity' 'is' timeUnits=TimeUnit)?
+	'Contract' contractName=ID '(' (parameters+=Parameter ',')+ (parameters+=Parameter) ')'
+	('Declarations' (variables+=Variable ';')*)?
+	('Preconditions' (preconditions+=Proposition ';')*)?
+	('Postconditions' (postconditions+=Proposition ';')*)?
+	('Obligations' (obligations+=Obligation ';')*)+
+	('Surviving' 'Obligations' (survivingObligations+=Obligation ';')*)?
+	('Powers' (powers+=Power ';')*)?
+	('Constraints' (constraints+=Proposition ';')*)?
+	'endContract';
+
+DomainType:
+	Alias | RegularType | Enumeration;
+
+Alias:
+	name=ID 'isA' type=BaseType;
+
+Enumeration:
+	name=ID 'isAn' 'Enumeration' '(' (enumerationItems+=EnumItem ',')* (enumerationItems+=EnumItem) ')';
+
+EnumItem:
+	name=ID;
+
+
+RegularType:
+	name=ID ('isA' | 'isAn') ontologyType=OntologyType ('with' (attributes+=Attribute ',')* (attributes+=Attribute))? |
+	name=ID ('isA' | 'isAn') regularType=[RegularType] ('with' (attributes+=Attribute ',')* (attributes+=Attribute))?;
+
+Attribute:
+	attributeModifier=AttributeModifier? name=ID ':' baseType=BaseType |
+	attributeModifier=AttributeModifier? name=ID ':' domainType=[DomainType];
+
+BaseType:
+	name=("Number" | "String" | "Date" | "Boolean");
+
+OntologyType:
+	name=("Asset" | "Event" | "Role" | "Contract");
+
+AttributeModifier:
+	name=('Env');
+
+Parameter:
+	name=ID ':' type=ParameterType;
+
+ParameterType:
+	baseType=BaseType |
+	domainType=[DomainType];
+
+Variable:
+	name=ID ':' type=[RegularType] ('with' attributes+=Assignment (',' attributes+=Assignment)*)?;
+
+
+OAssignment:
+	{OAssignExpression} name2= VariableDotExpression op=":=" (value=Expression);
+	
+VariableDotExpression returns Ref:
+	VariableRef ({VariableDotExpression.ref=current} "." tail=[Attribute])*;
+
+VariableRef returns Ref:
+	{VariableRef} variable=ID;
+
+Assignment:
+	{AssignExpression} name=ID ':=' value=Expression;
+
+Double returns ecore::EDouble:
+	INT '.' INT;
+
+Date returns ecore::EDate:
+  'Date' '(' STRING ')';
+
+Expression: Or;
+
+Or returns Expression:
+	And ({Or.left=current} "or" right=And)*;
+
+And returns Expression:
+	Equality ({And.left=current} "and" right=Equality)*;
+
+Equality returns Expression:
+	Comparison ({Equality.left=current} op=("==" | "!=") right=Comparison)*;
+
+Comparison returns Expression:
+	Addition ({Comparison.left=current} op=(">=" | "<=" | ">" | "<") right=Addition)*;
+
+Addition returns Expression:
+	Multiplication (({Plus.left=current} '+' | {Minus.left=current} '-') right=Multiplication)*;
+
+Multiplication returns Expression:
+	PrimaryExpression (({Multi.left=current} '*' | {Div.left=current} '/') right=PrimaryExpression)*;
+
+PrimaryExpression returns Expression:
+	{PrimaryExpressionRecursive} '(' inner=Expression ')' |
+	{PrimaryExpressionFunctionCall} function=FunctionCall |
+	{NegatedPrimaryExpression} "not" expression=PrimaryExpression |
+	AtomicExpression
+;
+
+AtomicExpression returns Expression:
+	{AtomicExpressionTrue} value="true" |
+	{AtomicExpressionFalse} value="false" |
+	{AtomicExpressionDouble} value=Double |
+	{AtomicExpressionInt} value=INT |
+	{AtomicExpressionDate} value= Date |
+	{AtomicExpressionEnum} enumeration=[Enumeration]"("enumItem=[EnumItem]")" |
+	{AtomicExpressionString} value=STRING |
+	{AtomicExpressionParameter} value=VariableDotExpression
+;
+
+FunctionCall:
+	MathFunction | StringFunction | DateFunction
+;
+MathFunction returns FunctionCall:
+  {TwoArgMathFunction} name=('Math.pow') '(' arg1=Expression ',' arg2=Expression ')' |
+  {OneArgMathFunction} name=('Math.abs'|'Math.floor'|'Math.cbrt'
+    |'Math.ceil'|'Math.exp'|'Math.sign'|'Math.sqrt'
+  ) '(' arg1=Expression ')';
+
+StringFunction returns FunctionCall:
+  {ThreeArgStringFunction} name=('String.substring'|'String.replaceAll') '(' arg1=Expression ',' arg2=Expression ',' arg3=Expression ')' |
+  {TwoArgStringFunction} name=('String.concat') '(' arg1=Expression ',' arg2=Expression ')' |
+  {OneArgStringFunction} name=('String.toLowerCase'|'String.toUpperCase'|'String.trimEnd'|'String.trimStart'|'String.trim') '(' arg1=Expression ')';
+	
+DateFunction returns FunctionCall:
+	{ThreeArgDateFunction} name='Date.add' '(' arg1=Expression ',' value=Expression ',' timeUnit=TimeUnit  ')' 
+;
+
+Obligation:
+	name=ID ':' (trigger=Proposition '->')? ('O' | 'Obligation') '(' debtor=VariableDotExpression ',' creditor=VariableDotExpression ',' antecedent=Proposition ',' consequent=Proposition ')';
+
+Power:
+	name=ID ':' (trigger=Proposition '->')? ('P' | 'Power') '(' creditor=VariableDotExpression ',' debtor=VariableDotExpression ',' antecedent=Proposition ',' consequent=PowerFunction ')';
+	
+PowerFunction returns PowerFunction:
+	{PFObligationSuspended} action = 'Suspended' '(' 'obligations.' norm = [Obligation] ')' | 
+	{PFObligationResumed} action = 'Resumed' '(' 'obligations.' norm = [Obligation] ')' | 
+	{PFObligationDischarged} action = 'Discharged' '(' 'obligations.' norm = [Obligation] ')' |
+	{PFObligationTerminated} action = 'Terminated' '(' 'obligations.' norm = [Obligation] ')' |
+	{PFObligationTriggered} action = 'Triggered' '(' 'obligations.' norm = [Obligation] ')' |
+	//{PFPowerSuspended} action = 'Suspended_' '(' norm = [Power] ')' | 
+	//{PFPowerResumed} action = 'Resumed_' '(' norm = [Power] ')' | 
+	//{PFPowerTerminated} action = 'Terminated_' '(' norm = [Power] ')' |
+	{PFContractSuspended} action = 'Suspended' '(' norm = 'self' ')' | 
+	{PFContractResumed} action = 'Resumed' '(' norm = 'self' ')' |
+	{PFContractTerminated} action = 'Terminated' '(' norm = 'self' ')';
+
+Proposition: POr;
+
+POr returns Proposition:
+	PAnd ({POr.left=current} "or" right=PAnd)*;
+
+PAnd returns Proposition:
+	PEquality ({PAnd.left=current} "and" right=PEquality)*;
+
+PEquality returns Proposition:
+	PComparison ({PEquality.left=current} op=("==" | "!=") right=PComparison)*;
+
+PComparison returns Proposition:
+	PAtomicExpression ({PComparison.left=current} op=(">=" | "<=" | ">" | "<") right=PAtomicExpression)*;
+
+PAtomicExpression returns Proposition:
+	{PAtomRecursive} '(' inner=Proposition ')' |
+	{NegatedPAtom} 'not' negated=PAtomicExpression |
+	{PAtomPredicate} predicateFunction=PredicateFunction |
+	{PAtomFunction} function=OtherFunction |
+  {PAtomEnum} enumeration=[Enumeration]"("enumItem=[EnumItem]")" |
+	{PAtomVariable} variable=VariableDotExpression |
+	{PAtomPredicateTrueLiteral} value='true' |
+	{PAtomPredicateFalseLiteral} value='false' |
+	{PAtomDoubleLiteral} value=Double |
+	{PAtomIntLiteral} value=INT |
+	{PAtomStringLiteral} value=STRING |
+	{PAtomDateLiteral} value= Date
+	;
+
+PredicateFunction:
+	{PredicateFunction Happens} name='Happens' '(' event=Event ')' |
+	{PredicateFunction WHappensBefore} name='WhappensBefore' '(' event=Event ',' point=Point ')' |
+	{PredicateFunction SHappensBefore} name='ShappensBefore' '(' event=Event ',' point=Point ')' |
+	{PredicateFunction HappensWithin} name='HappensWithin' '(' event=Event ',' interval=Interval ')'|
+	{PredicateFunction WHappensBeforeEvent} name='WhappensBeforeE' '(' event1=Event ',' event2=Event ')' |
+	{PredicateFunction SHappensBeforeEvent} name='ShappensBeforeE' '(' event1=Event ',' event2=Event ')' |
+	{PredicateFunction HappensAfter} name='HappensAfter' '(' event=Event ',' point=Point ')' |
+	{PredicateFunction Occurs} name='Occurs' '(' situation=Situation ',' interval=Interval ')' |
+	{PredicateFunction Assignment} name='HappensAssign' '(' event=Event ',' (assignment+=OAssignment (';' assignment+=OAssignment )*)?')' |
+	{PredicateFunction AssignmentOnly} name='Assign' '(' (assignment+=OAssignment (';' assignment+=OAssignment )*)?')'
+		;                                              //('with' attributes+=Assignment (',' attributes+=Assignment)*)?;
+	//{PredicateFunctionAssignmentOnly} name='Assign' '(' (assignment+=OAssignment)* (';' assignment+=OAssignment )?')'
+OtherFunction:
+  {PredicateFunctionIsEqual} name='IsEqual' '(' arg1=ID ',' arg2=ID ')' |
+  {PredicateFunctionIsOwner} name='IsOwner' '(' arg1=ID ',' arg2=ID ')' |
+  {PredicateFunctionCannotBeAssigned} name='CannotBeAssigned' '(' arg1=ID ')'
+  ;
+  
+Event:
+	VariableEvent |
+	ObligationEvent |
+	ContractEvent |
+	PowerEvent;
+	
+
+	
+VariableEvent returns Event:
+	{VariableEvent} variable=VariableDotExpression
+;
+
+PowerEvent returns Event:
+	{PowerEvent} eventName=PowerEventName '(' 'powers.' powerVariable=[Power] ')';
+
+PowerEventName:
+	'Triggered' | 'Activated' | 'Suspended' | 'Resumed' | 'Exerted' | 'Expired' | 'Terminated';
+
+ObligationEvent returns Event:
+	{ObligationEvent} eventName=ObligationEventName '(' 'obligations.' obligationVariable=[Obligation] ')';
+
+ObligationEventName:
+	'Triggered' | 'Activated' | 'Suspended' | 'Resumed' | 'Discharged' | 'Expired' | 'Fulfilled' | 'Violated' | 'Terminated';
+
+ContractEvent returns Event:
+	{ContractEvent} eventName=ContractEventName '(' 'self' ')';
+
+ContractEventName:
+	'Activated' | 'Suspended' | 'Resumed' | 'FulfilledObligations' | 'RevokedParty' | 'AssignedParty' | 'Terminated' | 'Rescinded';
+
+Point:
+	pointExpression=PointExpression;
+
+PointExpression:
+	PointFunction |
+	PointAtom;
+
+PointFunction returns PointExpression:
+	{PointFunction} name=PointFunctionName '(' arg=PointExpression ',' value=Timevalue ',' timeUnit=TimeUnit ')';
+
+PointFunctionName:
+	'Date.add';
+
+PointAtom returns PointExpression:
+	{PointAtomParameterDotExpression} variable=VariableDotExpression | 
+	{PointAtomObligationEvent} obligationEvent=ObligationEvent |
+	{PointAtomContractEvent} contractEvent=ContractEvent |
+	{PointAtomPowerEvent} powerEvent=PowerEvent;
+
+
+Timevalue:
+	{TimevalueInt} value=INT |
+	{TimevalueVariable} variable=VariableDotExpression
+;
+
+TimeUnit:
+	'seconds' | 'minutes' | 'hours' | 'days' | 'weeks' | 'months' | 'years';
+
+Interval:
+	intervalExpression=IntervalExpression;
+
+IntervalExpression:
+	{IntervalFunction} 'Interval' '(' arg1=PointExpression ',' arg2=PointExpression ')' |
+	{SituationExpression} situation=Situation;
+
+Situation:
+	ObligationState |
+	ContractState |
+	PowerState;
+
+PowerState:
+	stateName=PowerStateName '(' 'powers.' powerVariable=[Power] ')';
+
+PowerStateName:
+	'Create' | 'UnsuccessfulTermination' | 'Active' | 'InEffect' | 'Suspension' | 'SuccessfulTermination';
+
+ObligationState:
+	stateName=ObligationStateName '(' 'obligations.' obligationVariable=[Obligation] ')';
+
+ObligationStateName:
+	'Create' | 'Discharge' | 'Active' | 'InEffect' | 'Suspension' | 'Violation' | 'Fulfillment' | 'UnsuccessfulTermination';
+
+ContractState:
+	stateName=ContractStateName '(' 'self' ')';
+
+ContractStateName:
+	'Form' | 'UnAssign' | 'InEffect' | 'Suspension' | 'Rescission' | 'SuccessfulTermination' | 'UnsuccessfulTermination' | 'Active';
