@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?eclipse version="3.4"?>
+<plugin>
+
+   <!-- Define Commands -->
+   <extension point="org.eclipse.ui.commands">
+      <category
+            id="hello.commands.category"
+            name="Sample Category">
+      </category>
+      <command
+            categoryId="hello.commands.category"
+            name="Sample Command"
+            id="hello.commands.sampleCommand">
+      </command>
+      <command
+            id="hello.commands.newCommand"
+            name="New Button Action">
+      </command>
+   </extension>
+
+   <!-- Define Handlers -->
+   <extension point="org.eclipse.ui.handlers">
+      <handler
+            class="hello.handlers.SampleHandler"
+            commandId="hello.commands.sampleCommand">
+      </handler>
+      <handler
+            class="hello.handlers.NewHandler"
+            commandId="hello.commands.newCommand">
+      </handler>
+   </extension>
+
+   <!-- Define Key Bindings -->
+   <extension point="org.eclipse.ui.bindings">
+      <key
+            commandId="hello.commands.sampleCommand"
+            schemeId="org.eclipse.ui.defaultAcceleratorConfiguration"
+            contextId="org.eclipse.ui.contexts.window"
+            sequence="M1+6">
+      </key>
+   </extension>
+
+   <!-- Define Menus & Toolbar Buttons -->
+   <extension point="org.eclipse.ui.menus">
+      <menuContribution locationURI="menu:org.eclipse.ui.main.menu?after=additions">
+         <menu id="hello.menus.sampleMenu" label="Sample Menu" mnemonic="M">
+            <command
+                  commandId="hello.commands.sampleCommand"
+                  id="hello.menus.sampleCommand"
+                  mnemonic="S">
+            </command>
+         </menu>
+      </menuContribution>
+
+      <menuContribution locationURI="toolbar:org.eclipse.ui.main.toolbar?after=additions">
+         <toolbar id="hello.toolbars.sampleToolbar">
+            <!-- First Button -->
+            <command
+                  id="hello.toolbars.sampleCommand"
+                  commandId="hello.commands.sampleCommand"
+                  icon="icons/ai.png"
+                  tooltip="Run Error Fixer">
+            </command>
+
+            <!-- Second Button -->
+            <command
+                  id="hello.toolbars.newCommand"
+                  commandId="hello.commands.newCommand"
+                  icon="icons/analyser.png"
+                  label="New Button"
+                  tooltip="Click to execute new action"
+                  style="push">
+            </command>
+         </toolbar>
+      </menuContribution>
+   </extension>
+
+</plugin>
