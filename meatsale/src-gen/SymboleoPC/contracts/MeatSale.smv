@@ -1,0 +1,508 @@
+MODULE Timer(start)
+ VAR active1  : boolean;
+     expired1 : boolean;
+ ASSIGN
+   init(active1) := start;
+   next(active1) := (active1 | start) ? TRUE : active1;
+   init(expired1) :=  active1 ? {TRUE,FALSE} : FALSE;
+   next(expired1) :=  case
+           active1 & !expired1 : {TRUE,FALSE};
+           expired1           : TRUE;
+           TRUE              : FALSE;
+       esac;
+
+MODULE Event(start)
+ DEFINE 
+ 		_active := (state = active);
+ 		_inactive := (state = inactive);
+        _happened := (state = happened);
+        _expired  := (state = expired);
+ VAR triggered : boolean;
+         timer : Timer(start & !_happened & !_expired);
+         state : {inactive, active, happened, expired};
+		 performer	: {"CBEEF", "COSTCO"};
+
+ ASSIGN
+	next(performer)	:= case
+		state=active & start	: {"CBEEF", "COSTCO"};
+		TRUE	 				: performer;
+	esac;
+ ASSIGN
+  init(triggered) := FALSE;
+  next(triggered) := (state=active & start) ? {FALSE,TRUE} : FALSE;
+  init(state)     := inactive;
+  next(state)     := case
+    state=inactive & start                          : active;
+    state=active & start & triggered &
+							timer.active1 : happened;
+	state=active & start & timer.expired1 : expired;
+    TRUE                                            : state;
+  esac;
+
+--------------------------------------------------------------------------------------
+-- 'name' is party name
+-- 'removeL/R/P' releases liability, righHolder or performer position of a party
+-- 'addL/R/P' adds liability, righHolder or performer position to a party
+--------------------------------------------------------------------------------------
+MODULE Party(norm, name, removeL, addL, removeR, addR, removeP, addP)
+  DEFINE
+	_name 			:= name;
+	_norm			:= norm;
+	_is_performer	:= p_state=P;
+	_is_liable		:= l_state=L;
+	_is_rightHolder	:= r_state=R;
+
+  VAR
+	l_state	: {Init, L};
+	r_state	: {Init, R};
+	p_state	: {Init, P};
+
+  ASSIGN
+	init(l_state) := Init;
+	next(l_state)	:= case
+		l_state=Init & addL	: L;
+		l_state=L &removeL	: Init;
+		TRUE				: l_state;
+	esac;
+
+  ASSIGN
+	init(r_state) := Init;
+	next(r_state)	:= case
+		r_state=Init & addR	: R;
+		r_state=R & removeR : Init;
+		TRUE				: r_state;
+	esac;
+
+  ASSIGN
+	init(p_state) := Init;
+	next(p_state)	:= case
+		p_state=Init & addP : P;
+		p_state=P & removeP	: Init;
+		TRUE				: p_state;
+	esac;
+
+  INVAR
+	!(addL & removeL) &
+	!(addR & removeR) &
+	!(addP & removeP) &
+	!(_is_rightHolder & _is_liable);
+
+--------------------------------------------------------------------------------------
+-- 'cnt_in_effect'    indicates if the contract is in inEffect state
+-- 'power_suspended'  indicates if a power suspends the obligation
+-- 'cnt_suspended'    indicates if the contract suspension suspends the obligation
+-- 'power_resumed'    indicates if a power resumption resumes the obligation
+-- 'cnt_resumed'      indicates if the contract resumption resumes the obligation
+--------------------------------------------------------------------------------------
+MODULE Obligation(name, surviving, cnt_in_effect, cnt_untermination,
+                  fulfilled, triggered, violated, activated,
+				  expired1, power_suspended, cnt_suspended, terminated, power_resumed,
+				  cnt_resumed, discharged, antecedent)
+  DEFINE
+	_name 		:= name;
+	_surviving	:= surviving;
+	_suspended 	:= (power_suspended | (cnt_suspended & !surviving));
+	_active 	:= (state = inEffect | state = suspension);
+
+  VAR
+	state 		: {not_created, create, inEffect, suspension, discharge,
+				   fulfillment, violation, unsTermination};
+	sus_state	: {not_suspended, sus_by_contract, sus_by_power};
+
+  ASSIGN
+ --NEW: update axioms(surviving obligations are not suspended! informally mentioned)
+	init(sus_state) := not_suspended;
+	next(sus_state)	:= case
+		sus_state=not_suspended & !surviving & cnt_suspended 	: sus_by_contract;
+		sus_state=sus_by_contract & !surviving & cnt_resumed	: not_suspended;
+		sus_state=not_suspended & !surviving & power_suspended 	: sus_by_power;
+		sus_state=sus_by_power & !surviving & power_resumed		: not_suspended;
+		TRUE													: sus_state;
+	esac;
+
+  ASSIGN
+    init(state) := not_created;
+    next(state) := case
+		cnt_in_effect & state=not_created   & triggered & !antecedent : create;
+		cnt_in_effect & state=not_created   & triggered & antecedent  : inEffect;
+		cnt_in_effect & state=create        & antecedent              : inEffect;
+		cnt_in_effect & state=create        & (expired1 | discharged)  : discharge;
+		cnt_in_effect & state=inEffect      & fulfilled               : fulfillment;
+		cnt_in_effect & state=inEffect      & _suspended              : suspension;
+		cnt_in_effect & state=inEffect      & violated                : violation;
+		cnt_in_effect & _active            	& terminated              : unsTermination;
+		cnt_untermination & !surviving  	& _active           	  : unsTermination;
+		sus_state=sus_by_contract & state=suspension  & cnt_resumed   : inEffect;
+		sus_state=sus_by_power	  & state=suspension  & power_resumed   : inEffect;
+		TRUE                                                          : state;
+  esac;
+
+--------------------------------------------------------------------------------------
+-- 'cnt_in_effect'   indicates if the contract is in inEffect state
+-- 'power_suspended' indicates if a power suspends the power
+-- 'cnt_suspended'   indicates if the contract suspension suspends the power
+-- 'power_resumed'   indicates if a power resumption resumes the power
+-- 'cnt_resumed'     indicates if the contract resumption resumes the power
+--------------------------------------------------------------------------------------
+MODULE Power(name, cnt_in_effect, triggered, activated, expired1, power_suspended, cnt_suspended,
+       	     terminated, exerted, power_resumed, cnt_resumed, antecedent)
+  DEFINE
+	_name		 := name;
+	_active 	 := (state = inEffect | state = suspension);
+	_suspended 	 := (power_suspended | cnt_suspended);
+
+  VAR
+	state 		: {not_created, create, inEffect, suspension, sTermination, unsTermination};
+	sus_state	: {not_suspended, sus_by_contract, sus_by_power};
+
+  ASSIGN
+	init(sus_state) := not_suspended;
+	next(sus_state)	:= case
+		sus_state=not_suspended & cnt_suspended 	: sus_by_contract;
+		sus_state=sus_by_contract & cnt_resumed		: not_suspended;
+		sus_state=not_suspended & power_suspended 	: sus_by_power;
+		sus_state=sus_by_power & power_resumed		: not_suspended;
+		TRUE										: sus_state;
+	esac;
+
+  ASSIGN
+   init(state) := not_created;
+   next(state) := case
+     cnt_in_effect & state = not_created 	& triggered & !antecedent : create;
+     cnt_in_effect & state = not_created 	& triggered & antecedent  : inEffect;
+     cnt_in_effect & state = create      	& antecedent              : inEffect;
+     cnt_in_effect & state = create      	& expired1                : unsTermination;
+     cnt_in_effect & state = inEffect    	& exerted                 : sTermination;
+     cnt_in_effect & state = inEffect   	& _suspended              : suspension;
+     cnt_in_effect & state = inEffect    	& expired1                : unsTermination;
+	 cnt_in_effect & _active  			 	& terminated              : unsTermination;
+
+	 sus_state=sus_by_contract & state=suspension  & cnt_resumed 	  : inEffect;
+	 sus_state=sus_by_power	   & state=suspension  & power_resumed      : inEffect;
+
+     TRUE                                          				   	  : state;
+   esac;
+
+--------------------------------------------------------------------------------------
+-- 'assigned_party'				 indicates if a party is assigned to a role
+-- 'revoked_party'				 indicates if a party is unassigned from a role
+-- 'fulfilled_active_obligation' indicates if all active obligations are fulfilled
+--------------------------------------------------------------------------------------
+MODULE Contract(triggered, activated, terminated, suspended, resumed,
+				revoked_party, assigned_party, fulfilled_active_obligation)
+  DEFINE
+	_active 	 := (state = unassign | state = inEffect | state = suspension);
+	_termination := (state = sTermination | state = unsTermination);
+
+	-- obligations/powers' status changes once the contract goes to inEffect state
+	_o_activated := (state = form & activated) |
+						(state = suspension & resumed) |
+						(state = unassign & assigned_party) |
+						(state = inEffect);
+
+  VAR
+	state 		 : { not_created, form, inEffect, suspension, unassign, sTermination, unsTermination};
+
+  ASSIGN
+    init(state) := not_created;
+    next(state) := case
+		state = not_created & triggered  					: form;
+		state = form        & activated  					: inEffect;
+		state = inEffect    & fulfilled_active_obligation  	: sTermination;
+		state = inEffect    & suspended  					: suspension;
+		state = inEffect    & revoked_party  				: unassign;
+		state = inEffect    & terminated 					: unsTermination;
+		state = suspension  & resumed    					: inEffect;
+		state = suspension  & terminated 					: unsTermination;
+		state = unassign    & assigned_party 				: inEffect;
+		state = unassign    & terminated 					: unsTermination;
+		TRUE                             					: state;
+    esac;
+
+--------------------------------------------------------------------------------------
+-- CONTRACT INDEPENDENT CONCEPTS
+--------------------------------------------------------------------------------------
+MODULE Role(party)
+ DEFINE _party := party;
+
+MODULE Asset(owner)
+ DEFINE _owner := owner.role._party;
+ 
+MODULE Situation(proposition)
+ DEFINE _holds := proposition;
+ 
+-- WhappensBefore(e,t), ShappensBefore(e,t) are HappensAfter(e,t) are simulated as Happens(e,t) 		 
+MODULE WhappensBefore(event, time)
+ DEFINE _false  := (state = not_happened);
+	    _true := (state = happened);
+ VAR state: {not_happened, happened};
+	ASSIGN
+	    init(state) := not_happened;
+	    next(state) := case
+			state = not_happened & event.event._active & next(event.event._happened) : happened;
+			TRUE : state;
+		esac;
+		
+MODULE ShappensBefore(event, time)
+ DEFINE _false  := (state = not_happened);
+	    _true := (state = happened);
+ VAR state: {not_happened, happened};
+	ASSIGN
+	    init(state) := not_happened;
+	    next(state) := case
+			state = not_happened & event.event._active & next(event.event._happened) : happened;
+			TRUE : state;
+		esac;
+
+MODULE HappensAfter(event, time)
+ DEFINE _false  := (state = not_happened);
+	    _true := (state = happened);
+ VAR state: {not_happened, happened};
+	ASSIGN
+	    init(state) := not_happened;
+	    next(state) := case
+			state = not_happened & event.event._active & next(event.event._happened) : happened;
+			TRUE : state;
+		esac;
+			
+MODULE WhappensBeforeE(event1, event2)
+ DEFINE _false  := (state = not_happened);
+	    _true := (state = happened);
+ VAR state: {not_happened, happened};
+	ASSIGN
+	    init(state) := not_happened;
+	    next(state) := case
+			state = not_happened & event1.event._active & next(event1.event._happened) & !(next(event2_happened)) : happened;
+			TRUE : state;
+		esac;
+	
+MODULE ShappensBeforeE(event1, event2)
+ DEFINE _false  := (state = not_happened);
+        _true 	:= (state = ev1_ev2_happened);
+ VAR state: {not_happened, ev1_happened, ev1_ev2_happened};
+ 	ASSIGN
+   		init(state) := not_happened;
+    	next(state) := case
+			state = not_happened & event1.event._active & next(event1.event._happened) & !(next(event2.event._happened)) : ev1_happened;
+			state = ev1_happened & event2.event._active & next(event2.event._happened) : ev1_ev2_happened;
+			TRUE : state;
+ esac;
+	
+MODULE HappensWithin(event, situation)
+ DEFINE _false  := (state = not_happened);
+        _true 	:= (state = happened);
+ VAR state: {happened, not_happened};
+ 	ASSIGN
+    	init(state) := not_happened;
+    	next(state) := case
+			state = not_happened & event.event._active & next(event.event._happened) & situation._holds : happened;
+			TRUE : state;
+		esac;	
+
+MODULE HappensAfterE(event1, event2)
+ DEFINE _false  := (state = not_happened);
+        _true := (state = ev2_ev1_happened);
+
+ VAR state: {not_happened, ev2_happened, ev2_ev1_happened};
+ 	ASSIGN
+    	init(state) := not_happened;
+    	next(state) := case
+			state = not_happened & !(next(event1_happened)) & event2.event._active & next(event2.event._happened) : ev2_happened;
+			state = ev2_happened & event1.event._active & next(event1.event._happened) : ev2_ev1_happened;
+			TRUE : state;	
+	esac;
+
+--------------------------------------------------------------------------------------
+-- CONTRACT DEPENDENT CONCEPTS
+--------------------------------------------------------------------------------------
+
+MODULE Seller(party, returnAddress,name)
+DEFINE
+						_returnAddress := returnAddress;
+						_name := name;
+	 VAR
+			role : Role(party);
+
+MODULE Buyer(party, warehouse)
+DEFINE
+						_warehouse := warehouse;
+	 VAR
+			role : Role(party);
+
+
+MODULE PerishableGood (quantity,
+quality,
+owner)
+	 VAR
+			asset:Asset(owner);
+
+MODULE Meat (quantity, quality, owner)
+ VAR
+		asset:PerishableGood(quantity, quality, owner);
+
+
+MODULE Delivered(start, item, 
+deliveryAddress, 
+delDueDate)
+	 VAR
+		event : Event(start);
+
+MODULE Paid(start, amount, 
+currency, 
+from, 
+to, 
+payDueDate)
+	 VAR
+		event : Event(start);
+
+MODULE PaidLate(start, amount, 
+currency, 
+from, 
+to)
+	 VAR
+		event : Event(start);
+
+
+--------------------------------------------------------------------------------------
+-- CONTRACT
+-------------------------------------------------------------------------------------
+
+MODULE MeatSale (buyer,seller,qnt, qlt, amt, curr, payDueDate, delAdd, effDate, delDueDateDays, del, interestRate )
+
+	CONSTANTS
+	"CAD","USD","EUR","PRIME","AAA","AA","A","delivery","payment","latePayment","suspendDelivery","resumeDelivery","terminateContract";
+	
+	VAR
+		hbefore_paid_paid.payDueDate : WhappensBefore(paid, paid.payDueDate);
+		
+		hbefore_delivered_delivered.delDueDate : WhappensBefore(delivered, delivered.delDueDate);
+		
+		terminateContract_exerted : Event(terminateContract.state=inEffect);
+		
+		suspendDelivery_exerted : Event(suspendDelivery.state=inEffect);
+		
+		resumeDelivery_exerted : Event(resumeDelivery.state=inEffect);
+		
+		goods : Meat(qnt, qlt, seller);
+		
+		delivered : Delivered(delivery.state=inEffect, goods, delAdd, del);
+		
+		paidLate : PaidLate(latePayment.state=inEffect | cnt.state=inEffect, (1 + interestRate / 100) * amt, curr, buyer, seller);
+		
+		paid : Paid(payment.state=inEffect, amt, curr, buyer, seller, payDueDate);
+		
+		
+		cnt_succ_Termination : Situation((cnt.state=inEffect)
+		& !(delivery._active)
+		& !(payment._active)
+		& !(latePayment._active)
+		);
+		
+		--------------
+		-- SITUATIONS
+		--------------
+		terminateContract_exertion : Situation ((terminateContract._active & terminateContract_exerted._happened & terminateContract_exerted.performer = terminateContract_creditor._name & terminateContract_creditor._is_performer ));
+		
+		MeatSale_termination : Situation ((terminateContract._active & terminateContract_exerted._happened & terminateContract_exerted.performer = terminateContract_creditor._name & terminateContract_creditor._is_performer ));
+		
+		suspendDelivery_exertion : Situation ((suspendDelivery._active & suspendDelivery_exerted._happened & suspendDelivery_exerted.performer = suspendDelivery_creditor._name & suspendDelivery_creditor._is_performer ));
+		
+		delivery_suspension : Situation ((suspendDelivery._active & suspendDelivery_exerted._happened & suspendDelivery_exerted.performer = suspendDelivery_creditor._name & suspendDelivery_creditor._is_performer ));
+		
+		resumeDelivery_exertion : Situation ((resumeDelivery._active & resumeDelivery_exerted._happened & resumeDelivery_exerted.performer = resumeDelivery_creditor._name & resumeDelivery_creditor._is_performer ));
+		
+		delivery_resumption : Situation ((resumeDelivery._active & resumeDelivery_exerted._happened & resumeDelivery_exerted.performer = resumeDelivery_creditor._name & resumeDelivery_creditor._is_performer ));
+		
+		delivery_violated : Situation ((delivered.event._expired | (delivered.event._happened & !(delivered.event.performer = delivery_debtor._name & delivery_debtor._is_performer))));
+		
+		payment_violated : Situation ((paid.event._expired | (paid.event._happened & !(paid.event.performer = payment_debtor._name & payment_debtor._is_performer))));
+		
+		latePayment_violated : Situation ((paidLate.event._expired | (paidLate.event._happened & !(paidLate.event.performer = latePayment_debtor._name & latePayment_debtor._is_performer))));
+		
+		delivery_expired : Situation (FALSE);
+		
+		payment_expired : Situation (FALSE);
+		
+		latePayment_expired : Situation (FALSE);
+		
+		suspendDelivery_expired : Situation (FALSE);
+		
+		resumeDelivery_expired : Situation (FALSE);
+		
+		terminateContract_expired : Situation (FALSE);
+		
+		delivery_consequent : Situation (hbefore_delivered_delivered.delDueDate._true);
+		
+		payment_consequent : Situation (hbefore_paid_paid.payDueDate._true);
+		
+		latePayment_consequent : Situation ((paidLate.event._happened & paidLate.event.performer = latePayment_debtor._name & latePayment_debtor._is_performer));
+		
+		latePayment_trigger : Situation (payment.state=violation);
+		
+		suspendDelivery_trigger : Situation (payment.state=violation);
+		
+		terminateContract_trigger : Situation (delivery.state=violation);
+		
+		
+		cnt: Contract(TRUE, TRUE, MeatSale_termination._holds, FALSE, FALSE, FALSE, FALSE, cnt_succ_Termination._holds);
+			
+		--------------
+		-- OBLIGATIONS
+		--------------		
+		delivery : Obligation("delivery", FALSE, cnt._o_activated, MeatSale_termination._holds, delivery_consequent._holds, TRUE, delivery_violated._holds, FALSE, delivery_expired._holds, delivery_suspension._holds, FALSE, FALSE, delivery_resumption._holds, FALSE, FALSE, TRUE);
+				
+		payment : Obligation("payment", FALSE, cnt._o_activated, MeatSale_termination._holds, payment_consequent._holds, TRUE, payment_violated._holds, FALSE, payment_expired._holds, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE);
+				
+		latePayment : Obligation("latePayment", FALSE, cnt._o_activated, MeatSale_termination._holds, latePayment_consequent._holds, latePayment_trigger._holds, latePayment_violated._holds, FALSE, latePayment_expired._holds, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE);
+				
+		
+		--------------
+		-- POWERS
+		--------------
+		suspendDelivery : Power("suspendDelivery", cnt._o_activated, suspendDelivery_trigger._holds, FALSE, suspendDelivery_expired._holds, FALSE, FALSE, FALSE, suspendDelivery_exertion._holds, FALSE, FALSE, TRUE);
+		
+		resumeDelivery : Power("resumeDelivery", cnt._o_activated, TRUE, FALSE, resumeDelivery_expired._holds, FALSE, FALSE, FALSE, resumeDelivery_exertion._holds, FALSE, FALSE, TRUE);
+		
+		terminateContract : Power("terminateContract", cnt._o_activated, terminateContract_trigger._holds, FALSE, terminateContract_expired._holds, FALSE, FALSE, FALSE, terminateContract_exertion._holds, FALSE, FALSE, TRUE);
+		
+		
+		--------------
+		-- PARTIES
+		--------------
+		delivery_debtor : Party(delivery._name, seller.role._party, FALSE, TRUE, FALSE, FALSE, FALSE, TRUE);
+		delivery_creditor : Party(delivery._name, buyer.role._party, FALSE, FALSE, FALSE, TRUE, FALSE, FALSE);
+		
+		payment_debtor : Party(payment._name, buyer.role._party, FALSE, TRUE, FALSE, FALSE, FALSE, TRUE);
+		payment_creditor : Party(payment._name, seller.role._party, FALSE, FALSE, FALSE, TRUE, FALSE, FALSE);
+		
+		latePayment_debtor : Party(latePayment._name, buyer.role._party, FALSE, TRUE, FALSE, FALSE, FALSE, TRUE);
+		latePayment_creditor : Party(latePayment._name, seller.role._party, FALSE, FALSE, FALSE, TRUE, FALSE, FALSE);
+		
+		
+		suspendDelivery_debtor : Party(suspendDelivery._name, buyer.role._party, FALSE, TRUE, FALSE, FALSE, FALSE, TRUE);
+		suspendDelivery_creditor : Party(suspendDelivery._name, seller.role._party, FALSE, FALSE, FALSE, TRUE, FALSE, FALSE);
+		
+		resumeDelivery_debtor : Party(resumeDelivery._name, seller.role._party, FALSE, TRUE, FALSE, FALSE, FALSE, TRUE);
+		resumeDelivery_creditor : Party(resumeDelivery._name, buyer.role._party, FALSE, FALSE, FALSE, TRUE, FALSE, FALSE);
+		
+		terminateContract_debtor : Party(terminateContract._name, seller.role._party, FALSE, TRUE, FALSE, FALSE, FALSE, TRUE);
+		terminateContract_creditor : Party(terminateContract._name, buyer.role._party, FALSE, FALSE, FALSE, TRUE, FALSE, FALSE);
+		
+		
+		-----------------------
+		-- IMPLICIT CONSTRAINTS
+		-----------------------
+		INVAR 
+		 ((paid.payDueDate <  delivered.delDueDate) & (delivered.event.state = active)) -> ( 
+		 (paid.event.state = happened | paid.event.state = expired) )
+		INVAR 
+		 ((delivered.delDueDate <  paid.payDueDate) & (paid.event.state = active)) -> ( 
+		 (delivered.event.state = happened | delivered.event.state = expired) )
+		
+		--------------
+		-- CONSTRAINTS
+		--------------
+		
+		--------------
+		-- Assignment
+		--------------

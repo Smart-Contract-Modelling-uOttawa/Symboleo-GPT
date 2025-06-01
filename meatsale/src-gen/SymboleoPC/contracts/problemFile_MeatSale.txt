@@ -1,0 +1,57 @@
+{
+	domain: MeatSale
+	argument: {
+				buyer : {
+					
+						type : Buyer,
+						
+				}
+				seller : {
+					
+						type : Seller,
+						
+				}
+				qnt : {
+					type : Number,
+					value : [1..1000],
+				}
+				qlt : {
+						type : Enumeration,
+						value : "PRIME","AAA","AA","A"
+					
+				}
+				amt : {
+					type : Number,
+					value : [1..1000],
+				}
+				curr : {
+						type : Enumeration,
+						value : "CAD","USD","EUR"
+					
+				}
+				payDueDate : {
+					type : Date,
+					value : [1..1000],
+				}
+				delAdd : {
+					type : String,
+					value : [str1, str2, str3, str4],
+				}
+				effDate : {
+					type : Date,
+					value : [1..1000],
+				}
+				delDueDateDays : {
+					type : Number,
+					value : [1..1000],
+				}
+				del : {
+					type : Date,
+					value : [1..1000],
+				}
+				interestRate : {
+					type : Number,
+					value : [1..1000],
+				}
+		}
+}
