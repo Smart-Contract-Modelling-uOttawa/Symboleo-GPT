@@ -7,9 +7,9 @@ import random;
 # Load environment variables from .env file
 # load_dotenv()
 
-#  TODO: Enter you API KEY for Open AI . In my case I added Prof API key
+#  TODO: Enter you API KEY for Open AI .
 # Access the API key
-API_KEY = "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"
+API_KEY = ""
 # API_KEY = os.getenv("API_KEY")
 # Define all your prompt-generation functions (they look good)
 
